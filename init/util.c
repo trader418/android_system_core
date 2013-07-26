@@ -23,9 +23,7 @@
 #include <errno.h>
 #include <time.h>
 
-#ifdef HAVE_SELINUX
 #include <selinux/label.h>
-#endif
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -89,12 +87,10 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid, gid_t gid,
 {
     struct sockaddr_un addr;
     int fd, ret;
-#ifdef HAVE_SELINUX
     char *filecon;
 
     if (socketcon)
         setsockcreatecon(socketcon);
-#endif
 
     fd = socket(PF_UNIX, type, 0);
     if (fd < 0) {
@@ -102,10 +98,8 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid, gid_t gid,
         return -1;
     }
 
-#ifdef HAVE_SELINUX
     if (socketcon)
         setsockcreatecon(NULL);
-#endif
 
     memset(&addr, 0 , sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -118,14 +112,12 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid, gid_t gid,
         goto out_close;
     }
 
-#ifdef HAVE_SELINUX
     filecon = NULL;
     if (sehandle) {
         ret = selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK);
         if (ret == 0)
             setfscreatecon(filecon);
     }
-#endif
 
     ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
     if (ret) {
@@ -133,10 +125,8 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid, gid_t gid,
         goto out_unlink;
     }
 
-#ifdef HAVE_SELINUX
     setfscreatecon(NULL);
     freecon(filecon);
-#endif
 
     chown(addr.sun_path, uid, gid);
     chmod(addr.sun_path, perm);
@@ -475,31 +465,27 @@ int make_dir(const char *path, mode_t mode)
 {
     int rc;
 
-#ifdef HAVE_SELINUX
     char *secontext = NULL;
 
     if (sehandle) {
         selabel_lookup(sehandle, &secontext, path, mode);
         setfscreatecon(secontext);
     }
-#endif
 
     rc = mkdir(path, mode);
 
-#ifdef HAVE_SELINUX
     if (secontext) {
         int save_errno = errno;
         freecon(secontext);
         setfscreatecon(NULL);
         errno = save_errno;
     }
-#endif
+
     return rc;
 }
 
 int restorecon(const char *pathname)
 {
-#ifdef HAVE_SELINUX
     char *secontext = NULL;
     struct stat sb;
     int i;
@@ -516,6 +502,5 @@ int restorecon(const char *pathname)
         return -errno;
     }
     freecon(secontext);
-#endif
     return 0;
 }

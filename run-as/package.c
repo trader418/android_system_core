@@ -47,6 +47,9 @@
 /* Copy 'srclen' string bytes from 'src' into buffer 'dst' of size 'dstlen'
  * This function always zero-terminate the destination buffer unless
  * 'dstlen' is 0, even in case of overflow.
+ * Returns a pointer into the src string, leaving off where the copy
+ * has stopped. The copy will stop when dstlen, srclen or a null
+ * character on src has been reached.
  */
 static const char*
 string_copy(char* dst, size_t dstlen, const char* src, size_t srclen)
@@ -77,13 +80,30 @@ map_file(const char* filename, size_t* filesize)
     struct stat  st;
     size_t  length = 0;
     void*   address = NULL;
+    gid_t   oldegid;
 
     *filesize = 0;
 
+    /*
+     * Temporarily switch effective GID to allow us to read
+     * the packages file
+     */
+
+    oldegid = getegid();
+    if (setegid(AID_SYSTEM) < 0) {
+        return NULL;
+    }
+
     /* open the file for reading */
     fd = TEMP_FAILURE_RETRY(open(filename, O_RDONLY));
-    if (fd < 0)
+    if (fd < 0) {
         return NULL;
+    }
+
+    /* restore back to our old egid */
+    if (setegid(oldegid) < 0) {
+        goto EXIT;
+    }
 
     /* get its size */
     ret = TEMP_FAILURE_RETRY(fstat(fd, &st));
@@ -423,7 +443,7 @@ get_package_info(const char* pkgName, PackageInfo *info)
 
     /* expect the following format on each line of the control file:
      *
-     *  <pkgName> <uid> <debugFlag> <dataDir>
+     *  <pkgName> <uid> <debugFlag> <dataDir> <seinfo>
      *
      * where:
      *  <pkgName>    is the package's name
@@ -487,6 +507,17 @@ get_package_info(const char* pkgName, PackageInfo *info)
             goto BAD_FORMAT;
 
         p = string_copy(info->dataDir, sizeof info->dataDir, p, q - p);
+
+        /* skip spaces */
+        if (parse_spaces(&p, end) < 0)
+            goto BAD_FORMAT;
+
+        /* fifth field is the seinfo string */
+        q = skip_non_spaces(p, end);
+        if (q == p)
+            goto BAD_FORMAT;
+
+        string_copy(info->seinfo, sizeof info->seinfo, p, q - p);
 
         /* skip spaces */
         if (parse_spaces(&p, end) < 0)
